@@ -1,4 +1,0 @@
-fastapi
-uvicorn
-python-dotenv
-git+https://github.com/bitget-exchange/bitget-api-sdk-python.git
