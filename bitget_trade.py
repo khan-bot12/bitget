@@ -4,18 +4,17 @@ import hashlib
 import requests
 import uuid
 import os
-import json  # ✅ Fix: required for sending JSON body
+import json
 
-# Load API credentials from environment variables
+# Load Bitget API credentials from environment variables
 API_KEY = os.getenv("BITGET_API_KEY")
 API_SECRET = os.getenv("BITGET_API_SECRET")
 API_PASSPHRASE = os.getenv("BITGET_API_PASSPHRASE")
 
-# Bitget base API URL
+# Base URL for Bitget API
 BASE_URL = "https://api.bitget.com"
 
-
-# Create headers with HMAC signature
+# === Generate HMAC SHA256 Signature Header ===
 def headers(method, request_path, body=""):
     timestamp = str(int(time.time() * 1000))
     pre_hash = timestamp + method.upper() + request_path + body
@@ -28,8 +27,7 @@ def headers(method, request_path, body=""):
         "Content-Type": "application/json"
     }
 
-
-# Get the current position for the symbol
+# === Get Position for the Symbol ===
 def get_position(symbol):
     url = f"/api/mix/v1/position/singlePosition"
     params = f"?symbol={symbol}&marginCoin=USDT"
@@ -39,18 +37,16 @@ def get_position(symbol):
         print("📊 Current Position Info:", response.json())
         return response.json()
     except Exception as e:
-        print("❌ Exception getting position:", str(e))
+        print("❌ Exception while fetching position:", str(e))
         return None
 
-
-# Place a new order (and optionally close the opposite position)
+# === Place an Order ===
 def place_order(action, symbol, quantity, leverage):
     try:
-        # Step 1: Get current open positions
-        position_info = get_position(symbol)
         opposite_side = "short" if action == "buy" else "long"
 
-        # Step 2: Check for opposite position and close it
+        # Step 1: Check if we need to close the opposite position
+        position_info = get_position(symbol)
         if position_info and position_info.get("code") == "00000":
             positions = position_info.get("data", [])
             if isinstance(positions, list):
@@ -65,15 +61,15 @@ def place_order(action, symbol, quantity, leverage):
                             "size": str(pos["total"]),
                             "clientOid": str(uuid.uuid4())
                         }
-                        url = "/api/mix/v1/order/close-position"
+                        close_url = "/api/mix/v1/order/close-position"
                         response = requests.post(
-                            BASE_URL + url,
-                            json=close_order,
-                            headers=headers("POST", url, json.dumps(close_order))
+                            BASE_URL + close_url,
+                            headers=headers("POST", close_url, json.dumps(close_order)),
+                            data=json.dumps(close_order)
                         )
                         print("🧹 Close Response:", response.json())
 
-        # Step 3: Place the new order
+        # Step 2: Place new long or short order
         print("🟢 Placing new order...")
         side = "open_long" if action == "buy" else "open_short"
         order = {
@@ -88,8 +84,8 @@ def place_order(action, symbol, quantity, leverage):
         url = "/api/mix/v1/order/place-order"
         response = requests.post(
             BASE_URL + url,
-            json=order,
-            headers=headers("POST", url, json.dumps(order))
+            headers=headers("POST", url, json.dumps(order)),
+            data=json.dumps(order)
         )
         print("✅ Order Response:", response.json())
         return response.json()
