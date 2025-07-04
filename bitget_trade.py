@@ -45,7 +45,7 @@ def place_order(action, symbol, quantity, leverage):
     try:
         opposite_side = "short" if action == "buy" else "long"
 
-        # Step 1: Check if we need to close the opposite position
+        # Step 1: Check and close the opposite position if it exists
         position_info = get_position(symbol)
         if position_info and position_info.get("code") == "00000":
             positions = position_info.get("data", [])
@@ -61,7 +61,7 @@ def place_order(action, symbol, quantity, leverage):
                             "size": str(pos["total"]),
                             "clientOid": str(uuid.uuid4())
                         }
-                        close_url = "/api/mix/v1/order/close-position"
+                        close_url = "/api/mix/v1/position/close-position"
                         response = requests.post(
                             BASE_URL + close_url,
                             headers=headers("POST", close_url, json.dumps(close_order)),
@@ -81,7 +81,7 @@ def place_order(action, symbol, quantity, leverage):
             "leverage": str(leverage),
             "clientOid": str(uuid.uuid4())
         }
-        url = "/api/mix/v1/order/place-order"
+        url = "/api/mix/v1/order/placeOrder"
         response = requests.post(
             BASE_URL + url,
             headers=headers("POST", url, json.dumps(order)),
