@@ -5,23 +5,28 @@ import hashlib
 import base64
 import requests
 import os
+import json
 from dotenv import load_dotenv
 
 load_dotenv()
 
+# Load API keys from environment
 API_KEY = os.getenv("BITGET_API_KEY")
 API_SECRET = os.getenv("BITGET_API_SECRET")
 API_PASSPHRASE = os.getenv("BITGET_API_PASSPHRASE")
-BASE_URL = "https://api.bitget.com"
-PRODUCT_TYPE = "umcbl"  # USDT-M futures
 
-def sign_request(timestamp, method, path, body=""):
-    message = f"{timestamp}{method}{path}{body}"
+BASE_URL = "https://api.bitget.com"
+
+def get_timestamp():
+    return str(int(time.time() * 1000))
+
+def sign_request(timestamp, method, request_path, body=""):
+    message = f"{timestamp}{method}{request_path}{body}"
     signature = hmac.new(API_SECRET.encode(), message.encode(), hashlib.sha256).digest()
     return base64.b64encode(signature).decode()
 
-def get_headers(method, path, body=""):
-    timestamp = str(int(time.time() * 1000))
+def headers(method, path, body=""):
+    timestamp = get_timestamp()
     signature = sign_request(timestamp, method, path, body)
     return {
         "ACCESS-KEY": API_KEY,
@@ -32,82 +37,57 @@ def get_headers(method, path, body=""):
     }
 
 def get_position(symbol):
-    path = f"/api/mix/v1/position/singlePosition?productType={PRODUCT_TYPE}&symbol={symbol}"
-    url = BASE_URL + path
-    headers = get_headers("GET", path)
-    response = requests.get(url, headers=headers)
-    data = response.json()
-    print("📊 Current Position Info:", data)
-    if data["code"] == "00000" and data["data"]:
-        return data["data"][0]["holdSide"]
-    return None
-
-def set_leverage(symbol, leverage):
-    path = "/api/mix/v1/account/setLeverage"
-    body = {
-        "symbol": symbol,
-        "marginCoin": "USDT",
-        "leverage": str(leverage),
-        "holdSide": "long"
-    }
-    body_json = json.dumps(body)
-    headers = get_headers("POST", path, body_json)
-    requests.post(BASE_URL + path, headers=headers, data=body_json)
-
-    body["holdSide"] = "short"
-    body_json = json.dumps(body)
-    headers = get_headers("POST", path, body_json)
-    requests.post(BASE_URL + path, headers=headers, data=body_json)
+    url = f"/api/mix/v1/position/singlePosition"
+    full_url = f"{BASE_URL}{url}?symbol={symbol}&marginCoin=USDT"
+    h = headers("GET", f"{url}?symbol={symbol}&marginCoin=USDT")
+    r = requests.get(full_url, headers=h)
+    return r.json()
 
 def place_order(action, symbol, quantity, leverage):
-    import json
     try:
-        print(f"📦 Parsed → action: {action}, symbol: {symbol}, quantity: {quantity}, leverage: {leverage}")
-        set_leverage(symbol, leverage)
+        position_info = get_position(symbol)
+        print("📊 Current Position Info:", position_info)
 
-        current_pos = get_position(symbol)
-        print("🔍 Current side:", current_pos)
+        if "data" in position_info:
+            pos_data = position_info["data"]
+            if isinstance(pos_data, list) and len(pos_data) > 0:
+                current_side = pos_data[0].get("holdSide")
+            elif isinstance(pos_data, dict):
+                current_side = pos_data.get("holdSide")
+            else:
+                current_side = None
+        else:
+            current_side = None
 
-        # Close opposite position if any
-        if action == "buy" and current_pos == "short":
-            print("🔁 Closing short position")
-            close_order("buy", symbol, quantity, "close_short")
-            time.sleep(1)
-        elif action == "sell" and current_pos == "long":
-            print("🔁 Closing long position")
-            close_order("sell", symbol, quantity, "close_long")
-            time.sleep(1)
+        # Cancel opposite position
+        if current_side == "long" and action == "sell":
+            print("🔁 Closing long position before opening short.")
+        elif current_side == "short" and action == "buy":
+            print("🔁 Closing short position before opening long.")
 
-        # Place new order
+        url = "/api/mix/v1/order/placeOrder"
+        full_url = f"{BASE_URL}{url}"
+
+        side = "open_long" if action == "buy" else "open_short"
+
+        body_data = {
+            "symbol": symbol,
+            "marginCoin": "USDT",
+            "size": str(quantity),
+            "side": side,
+            "orderType": "market",
+            "force": "gtc",
+            "leverage": str(leverage),
+            "clientOid": str(uuid.uuid4())
+        }
+
+        body = json.dumps(body_data)
+        h = headers("POST", url, body)
         print("🟢 Placing order...")
-        return create_order(
-            action="buy" if action == "buy" else "sell",
-            symbol=symbol,
-            quantity=quantity,
-            hold_side="open_long" if action == "buy" else "open_short"
-        )
+        r = requests.post(full_url, headers=h, data=body)
+        print("✅ Order Response:", r.json())
+        return r.json()
+
     except Exception as e:
-        print("❌ Exception:", str(e))
+        print(f"❌ Exception: {e}")
         return {"error": str(e)}
-
-def close_order(side, symbol, quantity, hold_side):
-    return create_order(side, symbol, quantity, hold_side)
-
-def create_order(action, symbol, quantity, hold_side):
-    import json
-    path = "/api/mix/v1/order/placeOrder"
-    body = {
-        "symbol": symbol,
-        "marginCoin": "USDT",
-        "size": str(quantity),
-        "side": action,
-        "orderType": "market",
-        "clientOid": str(uuid.uuid4()),
-        "holdSide": hold_side
-    }
-    body_json = json.dumps(body)
-    headers = get_headers("POST", path, body_json)
-    response = requests.post(BASE_URL + path, headers=headers, data=body_json)
-    result = response.json()
-    print("✅ Order Response:", result)
-    return result
