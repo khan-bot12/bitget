@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from bitget_trade import place_order
+from bitget_trade import smart_trade
 
 app = FastAPI()
 
@@ -25,13 +25,13 @@ async def webhook(request: Request):
                 "error": "Missing required fields: action, symbol, quantity"
             })
 
-        # 🔁 Auto-convert to Bitget USDT futures symbol if needed
+        # 🔁 Convert to Bitget symbol if needed
         if not symbol.endswith("_UMCBL"):
             symbol += "_UMCBL"
 
-        # Place order
-        result = place_order(action, symbol, quantity, leverage)
-        print("📤 Result from place_order:", result)
+        # Execute smart trade
+        result = smart_trade(action, symbol, quantity, leverage)
+        print("📤 Result from smart_trade:", result)
 
         return JSONResponse(content={"status": "ok", "result": result})
     
