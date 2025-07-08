@@ -1,0 +1,25 @@
+//@version=5
+strategy("EMA 7/21 Crossover Strategy (15 SOL, One Trade at a Time)", overlay=true, default_qty_type=strategy.fixed, default_qty_value=15)
+
+// === EMAs ===
+ema7 = ta.ema(close, 7)
+ema21 = ta.ema(close, 21)
+
+// === Plot EMAs ===
+plot(ema7, color=color.orange, title="EMA 7")
+plot(ema21, color=color.blue, title="EMA 21")
+
+// === Crossover Conditions ===
+longCondition  = ta.crossover(ema7, ema21)
+shortCondition = ta.crossunder(ema7, ema21)
+
+// === Execute Orders ===
+if (longCondition)
+    strategy.close("Short")               // Close short if open
+    strategy.entry("Long", strategy.long) // Open long
+
+if (shortCondition)
+    strategy.close("Long")                // Close long if open
+    strategy.entry("Short", strategy.short) // Open short
+
+
