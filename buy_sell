@@ -1,0 +1,17 @@
+buy signal
+
+{
+  "action": "buy",
+  "symbol": "SOLUSDT",
+  "quantity": 15,
+  "leverage": 50
+}
+
+
+sell signal
+{
+  "action": "sell",
+  "symbol": "SOLUSDT",
+  "quantity": 15,
+  "leverage": 50
+}
