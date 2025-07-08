@@ -56,41 +56,6 @@ def get_position(symbol):
     response = requests.get(url, headers=headers, params=params)
     return response.json()
 
-# === PLACE ORDER ===
-def place_order(action, symbol, quantity, leverage):
-    try:
-        print(f"📊 Current Position Info: {get_position(symbol)}")
-
-        side = "open_long" if action == "buy" else "open_short"
-        opposite_side = "close_short" if action == "buy" else "close_long"
-
-        # Step 1: Close opposite if exists
-        close_resp = close_position(symbol, quantity, opposite_side)
-        if close_resp:
-            print("🔁 Closed opposite position")
-
-        # Step 2: Open new order
-        print("🟢 Placing new order...")
-        path = "/api/mix/v1/order/placeOrder"
-        url = BASE_URL + path
-        body = {
-            "symbol": symbol,
-            "marginCoin": "USDT",
-            "side": side,
-            "orderType": "market",
-            "size": str(quantity),
-            "leverage": str(leverage),
-            "clientOid": str(uuid.uuid4())
-        }
-        headers = get_headers("POST", path, body)
-        response = requests.post(url, headers=headers, data=json.dumps(body))
-        result = response.json()
-        print(f"✅ Order Response: {result}")
-        return result
-    except Exception as e:
-        print(f"❌ Exception: {e}")
-        return {"error": str(e)}
-
 # === CLOSE POSITION ===
 def close_position(symbol, quantity, side):
     try:
@@ -106,7 +71,60 @@ def close_position(symbol, quantity, side):
         }
         headers = get_headers("POST", path, body)
         response = requests.post(url, headers=headers, data=json.dumps(body))
+        print(f"🔁 Close {side.upper()} → response: {response.json()}")
         return response.json()
     except Exception as e:
         print(f"❌ Close Position Error: {e}")
         return None
+
+# === SMART TRADE: CLOSE ANY AND OPEN NEW ===
+def smart_trade(action, symbol, quantity, leverage):
+    print(f"📩 smart_trade → Action: {action.upper()}, Symbol: {symbol}, Qty: {quantity}, Leverage: {leverage}")
+
+    # Step 1: Get current position
+    try:
+        position_data = get_position(symbol)
+        pos = position_data.get("data", {})
+
+        long_pos = float(pos.get("long", {}).get("available", 0) or 0)
+        short_pos = float(pos.get("short", {}).get("available", 0) or 0)
+
+        print(f"📊 Position Check → LONG: {long_pos}, SHORT: {short_pos}")
+
+        # Step 2: Close any open positions
+        if long_pos > 0:
+            print(f"🔁 Closing LONG position of size {long_pos}")
+            close_position(symbol, long_pos, "close_long")
+
+        if short_pos > 0:
+            print(f"🔁 Closing SHORT position of size {short_pos}")
+            close_position(symbol, short_pos, "close_short")
+
+        print("✅ Closed any open position")
+
+    except Exception as e:
+        print(f"❌ Failed to check/close positions: {e}")
+
+    # Step 3: Open new trade based on signal
+    try:
+        side = "open_long" if action == "buy" else "open_short"
+        print("🟢 Opening new position...")
+        path = "/api/mix/v1/order/placeOrder"
+        url = BASE_URL + path
+        body = {
+            "symbol": symbol,
+            "marginCoin": "USDT",
+            "side": side,
+            "orderType": "market",
+            "size": str(quantity),
+            "leverage": str(leverage),
+            "clientOid": str(uuid.uuid4())
+        }
+        headers = get_headers("POST", path, body)
+        response = requests.post(url, headers=headers, data=json.dumps(body))
+        result = response.json()
+        print(f"✅ New order response: {result}")
+        return result
+    except Exception as e:
+        print(f"❌ Error placing new order: {e}")
+        return {"error": str(e)}
