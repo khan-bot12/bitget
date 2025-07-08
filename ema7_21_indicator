@@ -1,0 +1,37 @@
+//@version=6
+indicator("EMA 7/21 Crossover Indicator with One-Trade-at-a-Time Alerts", overlay=true)
+
+// === EMAs ===
+ema7 = ta.ema(close, 7)
+ema21 = ta.ema(close, 21)
+
+// === Plot EMAs ===
+plot(ema7, color=color.orange, title="EMA 7")
+plot(ema21, color=color.blue, title="EMA 21")
+
+// === Crossover Signals ===
+longSignal  = ta.crossover(ema7, ema21)
+shortSignal = ta.crossunder(ema7, ema21)
+
+// === Position State (simulated)
+var int position = 0
+
+// === Position Switching Logic ===
+newLong  = longSignal and position != 1
+newShort = shortSignal and position != -1
+
+if (newLong)
+    position := 1
+else if (newShort)
+    position := -1
+
+// === Plot Visual Signals ===
+plotshape(newLong, title="Long Signal", location=location.belowbar, color=color.green, style=shape.labelup, text="LONG")
+plotshape(newShort, title="Short Signal", location=location.abovebar, color=color.red, style=shape.labeldown, text="SHORT")
+
+// === Alerts with webhook JSON payload ===
+longMessage  = '{"action":"buy","symbol":"SOLUSDT_UMCBL","quantity":15,"leverage":50}'
+shortMessage = '{"action":"sell","symbol":"SOLUSDT_UMCBL","quantity":15,"leverage":50}'
+
+alertcondition(newLong, title="Long Entry Alert", message=longMessage)
+alertcondition(newShort, title="Short Entry Alert", message=shortMessage)
