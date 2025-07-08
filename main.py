@@ -14,7 +14,7 @@ async def webhook(request: Request):
         data = await request.json()
         print("📥 Incoming webhook data:", data)
 
-        # Extract parameters from webhook
+        # Extract and validate fields
         action = data.get("action")
         symbol = data.get("symbol")
         quantity = data.get("quantity")
@@ -25,7 +25,11 @@ async def webhook(request: Request):
                 "error": "Missing required fields: action, symbol, quantity"
             })
 
-        # Place order via Bitget
+        # 🔁 Auto-convert to Bitget USDT futures symbol if needed
+        if not symbol.endswith("_UMCBL"):
+            symbol += "_UMCBL"
+
+        # Place order
         result = place_order(action, symbol, quantity, leverage)
         print("📤 Result from place_order:", result)
 
