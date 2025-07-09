@@ -16,14 +16,14 @@ API_SECRET = os.getenv("BITGET_API_SECRET")
 API_PASSPHRASE = os.getenv("BITGET_API_PASSPHRASE")
 BASE_URL = "https://api.bitget.com"
 
-# === SIGNATURE GENERATOR ===
+# === SIGNATURE ===
 def generate_signature(timestamp, method, request_path, body):
     prehash = f"{timestamp}{method}{request_path}{body}"
     hash_bytes = hmac.new(API_SECRET.encode(), prehash.encode(), hashlib.sha256).digest()
     signature = base64.b64encode(hash_bytes).decode()
     return signature
 
-# === COMMON HEADERS ===
+# === HEADERS ===
 def get_headers(method, path, body):
     timestamp = str(int(time.time() * 1000))
     body_str = json.dumps(body) if body else ""
@@ -36,14 +36,11 @@ def get_headers(method, path, body):
         "Content-Type": "application/json"
     }
 
-# === GET CURRENT POSITIONS ===
+# === GET POSITION ===
 def get_position(symbol):
-    path = f"/api/mix/v1/position/singlePosition"
+    path = "/api/mix/v1/position/singlePosition"
     url = BASE_URL + path
-    params = {
-        "symbol": symbol,
-        "marginCoin": "USDT"
-    }
+    params = {"symbol": symbol, "marginCoin": "USDT"}
     timestamp = str(int(time.time() * 1000))
     query = f"symbol={symbol}&marginCoin=USDT"
     sign = generate_signature(timestamp, "GET", path + "?" + query, "")
@@ -56,12 +53,26 @@ def get_position(symbol):
     response = requests.get(url, headers=headers, params=params)
     return response.json()
 
+# === CLOSE POSITION ===
+def close_position(symbol, quantity, side):
+    path = "/api/mix/v1/order/placeOrder"
+    url = BASE_URL + path
+    body = {
+        "symbol": symbol,
+        "marginCoin": "USDT",
+        "side": side,
+        "orderType": "market",
+        "size": str(quantity),
+        "clientOid": str(uuid.uuid4())
+    }
+    headers = get_headers("POST", path, body)
+    response = requests.post(url, headers=headers, data=json.dumps(body))
+    print(f"✅ Close order response: {response.json()}")
+    return response.json()
+
 # === PLACE ORDER ===
 def place_order(action, symbol, quantity, leverage):
-    print(f"🟢 Placing new order: {action.upper()} {quantity} {symbol} @ {leverage}x")
-
     side = "open_long" if action == "buy" else "open_short"
-
     path = "/api/mix/v1/order/placeOrder"
     url = BASE_URL + path
     body = {
@@ -75,73 +86,49 @@ def place_order(action, symbol, quantity, leverage):
     }
     headers = get_headers("POST", path, body)
     response = requests.post(url, headers=headers, data=json.dumps(body))
-    result = response.json()
-    print(f"✅ New order response: {result}")
-    return result
-
-# === CLOSE POSITION ===
-def close_position(symbol, quantity, side):
-    print(f"🔁 Closing position: {side} {quantity} {symbol}")
-    path = "/api/mix/v1/order/placeOrder"
-    url = BASE_URL + path
-    body = {
-        "symbol": symbol,
-        "marginCoin": "USDT",
-        "side": side,
-        "orderType": "market",
-        "size": str(quantity),
-        "clientOid": str(uuid.uuid4())
-    }
-    headers = get_headers("POST", path, body)
-    response = requests.post(url, headers=headers, data=json.dumps(body))
-    result = response.json()
-    print(f"✅ Close order response: {result}")
-    return result
+    print(f"✅ New order response: {response.json()}")
+    return response.json()
 
 # === SMART TRADE ===
 def smart_trade(action, symbol, quantity, leverage):
-    # Add suffix if missing
-    if not symbol.endswith("_UMCBL"):
-        symbol = f"{symbol}_UMCBL"
-
     print(f"📩 smart_trade → Action: {action.upper()}, Symbol: {symbol}, Qty: {quantity}, Leverage: {leverage}")
 
-    try:
-        position_data = get_position(symbol)
-        print("🔍 Position API Raw:", position_data)
+    pos = get_position(symbol)
+    print(f"🔍 Position API Raw: {pos}")
 
-        long_pos = 0
-        short_pos = 0
+    long_pos = 0
+    short_pos = 0
 
-        if 'data' in position_data and isinstance(position_data['data'], list):
-            for pos in position_data['data']:
-                side = pos.get('holdSide')
-                available = float(pos.get('available', 0))
-                if side == 'long':
-                    long_pos += available
-                elif side == 'short':
-                    short_pos += available
+    if pos["code"] == "00000" and pos.get("data"):
+        for p in pos["data"]:
+            side = p.get("holdSide")
+            size = float(p.get("total", 0))
+            if side == "long":
+                long_pos += size
+            elif side == "short":
+                short_pos += size
 
-        print(f"➡️ Current: Long: {long_pos}, Short: {short_pos}")
+    print(f"➡️ Current: Long: {long_pos}, Short: {short_pos}")
 
-        if action == "buy" and long_pos > 0:
+    if action == "buy":
+        if short_pos > 0:
+            print(f"🔁 Closing short before opening long ({short_pos} contracts)...")
+            close_position(symbol, short_pos, "close_short")
+
+        if long_pos > 0:
             print("✅ Long already open. No new trade needed.")
             return {"msg": "Long already open. No new trade placed."}
 
-        if action == "sell" and short_pos > 0:
+    elif action == "sell":
+        if long_pos > 0:
+            print(f"🔁 Closing long before opening short ({long_pos} contracts)...")
+            close_position(symbol, long_pos, "close_long")
+
+        if short_pos > 0:
             print("✅ Short already open. No new trade needed.")
             return {"msg": "Short already open. No new trade placed."}
 
-        if action == "buy" and short_pos > 0:
-            print("🔁 Closing short before opening long...")
-            close_position(symbol, quantity, "close_short")
-
-        if action == "sell" and long_pos > 0:
-            print("🔁 Closing long before opening short...")
-            close_position(symbol, quantity, "close_long")
-
-    except Exception as e:
-        print(f"❌ Failed to check/close positions: {e}")
-
     print("🟢 Opening new position...")
-    return place_order(action, symbol, quantity, leverage)
+    result = place_order(action, symbol, quantity, leverage)
+    print(f"📤 smart_trade result: {result}")
+    return result
