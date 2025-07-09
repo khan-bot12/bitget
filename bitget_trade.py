@@ -84,10 +84,17 @@ def smart_trade(action, symbol, quantity, leverage):
     # Step 1: Get current position
     try:
         position_data = get_position(symbol)
-        pos = position_data.get("data", {})
+        positions = position_data.get("data", [])
+        long_pos = 0
+        short_pos = 0
 
-        long_pos = float(pos.get("long", {}).get("available", 0) or 0)
-        short_pos = float(pos.get("short", {}).get("available", 0) or 0)
+        for p in positions:
+            side = p.get("holdSide")
+            available = float(p.get("available", 0) or 0)
+            if side == "long":
+                long_pos = available
+            elif side == "short":
+                short_pos = available
 
         print(f"📊 Position Check → LONG: {long_pos}, SHORT: {short_pos}")
 
