@@ -4,8 +4,8 @@ from bitget_trade import smart_trade
 app = FastAPI()
 
 @app.get("/")
-def read_root():
-    return {"msg": "Bitget AutoBot is running 🎉"}
+def home():
+    return {"msg": "✅ Bitget Smart Bot is running."}
 
 @app.post("/webhook")
 async def webhook(request: Request):
@@ -18,6 +18,4 @@ async def webhook(request: Request):
     leverage = data.get("leverage", 50)
 
     result = smart_trade(action, symbol, quantity, leverage)
-    print(f"📤 smart_trade result: {result}")
-
-    return {"status": "ok", "details": result}
+    return {"status": "ok", "result": result}
