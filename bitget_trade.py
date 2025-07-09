@@ -10,20 +10,17 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# === ENV VARIABLES ===
 API_KEY = os.getenv("BITGET_API_KEY")
 API_SECRET = os.getenv("BITGET_API_SECRET")
 API_PASSPHRASE = os.getenv("BITGET_API_PASSPHRASE")
 BASE_URL = "https://api.bitget.com"
 
-# === SIGNATURE GENERATOR ===
 def generate_signature(timestamp, method, request_path, body):
     prehash = f"{timestamp}{method}{request_path}{body}"
     hash_bytes = hmac.new(API_SECRET.encode(), prehash.encode(), hashlib.sha256).digest()
     signature = base64.b64encode(hash_bytes).decode()
     return signature
 
-# === COMMON HEADERS ===
 def get_headers(method, path, body):
     timestamp = str(int(time.time() * 1000))
     body_str = json.dumps(body) if body else ""
@@ -36,7 +33,6 @@ def get_headers(method, path, body):
         "Content-Type": "application/json"
     }
 
-# === GET CURRENT POSITION ===
 def get_position(symbol):
     path = f"/api/mix/v1/position/singlePosition"
     url = BASE_URL + path
@@ -56,7 +52,6 @@ def get_position(symbol):
     response = requests.get(url, headers=headers, params=params)
     return response.json()
 
-# === CLOSE POSITION ===
 def close_position(symbol, quantity, side):
     try:
         path = "/api/mix/v1/order/placeOrder"
@@ -77,12 +72,10 @@ def close_position(symbol, quantity, side):
         print(f"❌ Close Position Error: {e}")
         return None
 
-# === SMART TRADE FUNCTION ===
 def smart_trade(action, symbol, quantity, leverage):
     print(f"📩 smart_trade → Action: {action.upper()}, Symbol: {symbol}, Qty: {quantity}, Leverage: {leverage}")
 
     try:
-        # === Step 1: Get current position ===
         position_data = get_position(symbol)
         positions = position_data.get("data", [])
         long_pos = 0
@@ -98,7 +91,6 @@ def smart_trade(action, symbol, quantity, leverage):
 
         print(f"📊 Position Check → LONG: {long_pos}, SHORT: {short_pos}")
 
-        # === Step 2: Trading Logic ===
         if action == "buy":
             if long_pos > 0:
                 print("✅ Already in LONG → No action taken.")
@@ -123,7 +115,6 @@ def smart_trade(action, symbol, quantity, leverage):
             print(f"❌ Invalid action: {action}")
             return {"error": "invalid action"}
 
-        # === Step 3: Open new position ===
         path = "/api/mix/v1/order/placeOrder"
         url = BASE_URL + path
         body = {
