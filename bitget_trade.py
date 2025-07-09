@@ -59,8 +59,8 @@ def smart_trade(action, symbol, quantity, leverage):
         position_data = get_position(symbol)
         print("🔍 Position API Raw:", position_data)
 
-        long_pos = None
-        short_pos = None
+        long_pos = 0
+        short_pos = 0
 
         if 'data' in position_data and isinstance(position_data['data'], dict):
             long_pos = float(position_data['data'].get('long', {}).get('available', 0))
@@ -70,14 +70,14 @@ def smart_trade(action, symbol, quantity, leverage):
 
         # If same side is open, do nothing
         if action == "buy" and long_pos > 0:
-            print("✅ Long already open. Nothing to do.")
-            return {"msg": "Long already open. No new trade needed."}
+            print("✅ Long already open. No new trade needed.")
+            return {"msg": "Long already open. No new trade placed."}
 
         if action == "sell" and short_pos > 0:
-            print("✅ Short already open. Nothing to do.")
-            return {"msg": "Short already open. No new trade needed."}
+            print("✅ Short already open. No new trade needed.")
+            return {"msg": "Short already open. No new trade placed."}
 
-        # Close opposite side if open
+        # Close opposite if open
         if action == "buy" and short_pos > 0:
             print("🔁 Closing short...")
             close_position(symbol, quantity, "close_short")
@@ -89,7 +89,7 @@ def smart_trade(action, symbol, quantity, leverage):
     except Exception as e:
         print(f"❌ Failed to check/close positions: {e}")
 
-    # Open new position
+    # Place new position
     print("🟢 Opening new position...")
     return place_order(action, symbol, quantity, leverage)
 
