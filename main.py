@@ -19,3 +19,8 @@ async def webhook(request: Request):
 
     result = smart_trade(action, symbol, quantity, leverage)
     return {"status": "ok", "result": result}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000)
