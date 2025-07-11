@@ -6,6 +6,7 @@ import json
 import uuid
 import requests
 import os
+import threading
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -15,6 +16,20 @@ API_KEY = os.getenv("BITGET_API_KEY")
 API_SECRET = os.getenv("BITGET_API_SECRET")
 API_PASSPHRASE = os.getenv("BITGET_API_PASSPHRASE")
 BASE_URL = "https://api.bitget.com"
+
+# === TRAILING SL CONFIG ===
+TRAILING_SL_CONFIG = {
+    "SOLUSDT_UMCBL": [
+        {"trigger": 0.5, "sl": 0.0},
+        {"trigger": 1.0, "sl": 0.5},
+        {"trigger": 2.0, "sl": 1.0}
+    ],
+    "ETHUSDT_UMCBL": [
+        {"trigger": 0.6, "sl": 0.2},
+        {"trigger": 1.2, "sl": 0.6},
+        {"trigger": 2.5, "sl": 1.0}
+    ]
+}
 
 # === SIGNATURE ===
 def generate_signature(timestamp, method, request_path, body):
@@ -130,5 +145,59 @@ def smart_trade(action, symbol, quantity, leverage):
 
     print("🟢 Opening new position...")
     result = place_order(action, symbol, quantity, leverage)
-    print(f"📤 smart_trade result: {result}")
+    entry_price = float(get_current_price(symbol))
+    save_entry_price(symbol, entry_price)
     return result
+
+# === Entry Price Helpers ===
+def save_entry_price(symbol, entry_price):
+    with open(f"{symbol}_entry.txt", "w") as f:
+        f.write(str(entry_price))
+
+def get_current_price(symbol):
+    url = f"{BASE_URL}/api/mix/v1/market/ticker?symbol={symbol}"
+    response = requests.get(url)
+    return response.json().get("data", {}).get("last")
+
+# === Trailing SL Monitor ===
+def place_stop_loss(symbol, hold_side, stop_price):
+    path = "/api/mix/v1/plan/placeTPSL"
+    url = BASE_URL + path
+    body = {
+        "symbol": symbol,
+        "marginCoin": "USDT",
+        "planType": "pos_profit",
+        "triggerPrice": str(stop_price),
+        "holdSide": hold_side,
+        "triggerType": "mark_price"
+    }
+    headers = get_headers("POST", path, body)
+    response = requests.post(url, headers=headers, data=json.dumps(body))
+    print(f"📉 SL Updated: {symbol} → {stop_price}")
+    return response.json()
+
+def monitor_trailing_stop():
+    while True:
+        for symbol, steps in TRAILING_SL_CONFIG.items():
+            try:
+                with open(f"{symbol}_entry.txt", "r") as f:
+                    entry_price = float(f.read())
+                current_price = float(get_current_price(symbol))
+
+                for step in reversed(steps):
+                    trigger = step["trigger"]
+                    sl = step["sl"]
+
+                    if current_price >= entry_price * (1 + trigger / 100):
+                        new_sl = entry_price * (1 + sl / 100)
+                        place_stop_loss(symbol, "long", new_sl)
+                        break
+
+            except FileNotFoundError:
+                continue
+            except Exception as e:
+                print(f"❌ SL Monitor Error for {symbol}: {e}")
+
+        time.sleep(10)
+
+threading.Thread(target=monitor_trailing_stop, daemon=True).start()
