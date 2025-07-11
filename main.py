@@ -1,37 +1,30 @@
 from fastapi import FastAPI, Request
-from bitget_trade import smart_trade
 import uvicorn
+import json
+from bitget_trade import smart_trade
 
 app = FastAPI()
-
-@app.get("/")
-def home():
-    return {"msg": "✅ Bitget Smart Bot is running."}
 
 @app.post("/webhook")
 async def webhook(request: Request):
     try:
         data = await request.json()
-        print(f"📬 Incoming webhook: {data}")
+        print("📥 Webhook Received:", data)
 
         action = data.get("action")
         symbol = data.get("symbol")
         quantity = data.get("quantity")
-        leverage = data.get("leverage", 50)
+        leverage = data.get("leverage")
 
-        # Basic validation
-        if not all([action, symbol, quantity]):
-            print("❌ Missing required fields in webhook data.")
-            return {"status": "error", "msg": "Missing required fields"}
+        if not all([action, symbol, quantity, leverage]):
+            return {"error": "Missing parameters"}
 
-        # Call the smart trading logic
         result = smart_trade(action, symbol, quantity, leverage)
-        return {"status": "ok", "result": result}
+        return {"status": "executed", "result": result}
 
     except Exception as e:
-        print(f"❌ Webhook handling error: {e}")
-        return {"status": "error", "msg": str(e)}
+        print("❌ Webhook Error:", str(e))
+        return {"error": str(e)}
 
-# Run app on port 80 so TradingView can reach it
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=80)
