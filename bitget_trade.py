@@ -20,14 +20,24 @@ BASE_URL = "https://api.bitget.com"
 # === TRAILING SL CONFIG ===
 TRAILING_SL_CONFIG = {
     "SOLUSDT_UMCBL": [
-        {"trigger": 0.5, "sl": 0.0},
-        {"trigger": 1.0, "sl": 0.5},
-        {"trigger": 2.0, "sl": 1.0}
+        {"trigger": 4.00, "sl": 3.00},
+        {"trigger": 3.00, "sl": 2.00},
+        {"trigger": 2.25, "sl": 1.50},
+        {"trigger": 2.00, "sl": 1.25},
+        {"trigger": 1.25, "sl": 0.75},
+        {"trigger": 1.00, "sl": 0.50},
+        {"trigger": 0.75, "sl": 0.35},
+        {"trigger": 0.0, "sl": 0.0}
     ],
     "ETHUSDT_UMCBL": [
-        {"trigger": 0.6, "sl": 0.2},
-        {"trigger": 1.2, "sl": 0.6},
-        {"trigger": 2.5, "sl": 1.0}
+        {"trigger": 4.00, "sl": 3.00},
+        {"trigger": 3.00, "sl": 2.00},
+        {"trigger": 2.25, "sl": 1.50},
+        {"trigger": 2.00, "sl": 1.25},
+        {"trigger": 1.25, "sl": 0.75},
+        {"trigger": 1.00, "sl": 0.50},
+        {"trigger": 0.75, "sl": 0.35},
+        {"trigger": 0.0, "sl": 0.0}
     ]
 }
 
@@ -35,8 +45,7 @@ TRAILING_SL_CONFIG = {
 def generate_signature(timestamp, method, request_path, body):
     prehash = f"{timestamp}{method}{request_path}{body}"
     hash_bytes = hmac.new(API_SECRET.encode(), prehash.encode(), hashlib.sha256).digest()
-    signature = base64.b64encode(hash_bytes).decode()
-    return signature
+    return base64.b64encode(hash_bytes).decode()
 
 # === HEADERS ===
 def get_headers(method, path, body):
@@ -65,8 +74,7 @@ def get_position(symbol):
         "ACCESS-TIMESTAMP": timestamp,
         "ACCESS-PASSPHRASE": API_PASSPHRASE
     }
-    response = requests.get(url, headers=headers, params=params)
-    return response.json()
+    return requests.get(url, headers=headers, params=params).json()
 
 # === CLOSE POSITION ===
 def close_position(symbol, quantity, side):
@@ -127,23 +135,18 @@ def smart_trade(action, symbol, quantity, leverage):
 
     if action == "buy":
         if short_pos > 0:
-            print(f"🔁 Closing short before opening long ({short_pos} contracts)...")
             close_position(symbol, short_pos, "close_short")
-
         if long_pos > 0:
             print("✅ Long already open. No new trade needed.")
             return {"msg": "Long already open. No new trade placed."}
 
     elif action == "sell":
         if long_pos > 0:
-            print(f"🔁 Closing long before opening short ({long_pos} contracts)...")
             close_position(symbol, long_pos, "close_long")
-
         if short_pos > 0:
             print("✅ Short already open. No new trade needed.")
             return {"msg": "Short already open. No new trade placed."}
 
-    print("🟢 Opening new position...")
     result = place_order(action, symbol, quantity, leverage)
     entry_price = float(get_current_price(symbol))
     save_entry_price(symbol, entry_price)
@@ -151,15 +154,12 @@ def smart_trade(action, symbol, quantity, leverage):
 
 # === Entry Price Helpers ===
 def save_entry_price(symbol, entry_price):
-    path = f"{symbol}_entry.txt"
-    with open(path, "w") as f:
+    with open(f"{symbol}_entry.txt", "w") as f:
         f.write(str(entry_price))
-    os.chmod(path, 0o644)
 
 def get_current_price(symbol):
     url = f"{BASE_URL}/api/mix/v1/market/ticker?symbol={symbol}"
-    response = requests.get(url)
-    return response.json().get("data", {}).get("last")
+    return requests.get(url).json().get("data", {}).get("last")
 
 # === Trailing SL Monitor ===
 def place_stop_loss(symbol, hold_side, stop_price):
@@ -179,7 +179,6 @@ def place_stop_loss(symbol, hold_side, stop_price):
     return response.json()
 
 def monitor_trailing_stop():
-    print("🚨 Trailing SL thread started.")
     while True:
         for symbol, steps in TRAILING_SL_CONFIG.items():
             try:
@@ -187,33 +186,21 @@ def monitor_trailing_stop():
                     entry_price = float(f.read())
                 current_price = float(get_current_price(symbol))
 
-                pos = get_position(symbol)
-                side = None
-                size = 0
-
-                if pos["code"] == "00000" and pos.get("data"):
-                    for p in pos["data"]:
-                        if p.get("symbol") == symbol:
-                            side = p.get("holdSide")
-                            size = float(p.get("total", 0))
-
-                if not side or size == 0:
+                if current_price == 0.0:
                     continue
 
-                print(f"📊 Checking: {symbol} | Entry: {entry_price} | Current: {current_price} | Side: {side}")
+                direction = "short" if current_price < entry_price else "long"
+                change_pct = abs((current_price - entry_price) / entry_price) * 100
 
                 for step in reversed(steps):
-                    trigger = step["trigger"]
-                    sl = step["sl"]
+                    if change_pct >= step["trigger"]:
+                        if direction == "long":
+                            sl_price = entry_price * (1 - step["sl"] / 100)
+                        else:
+                            sl_price = entry_price * (1 + step["sl"] / 100)
 
-                    if side == "long" and current_price >= entry_price * (1 + trigger / 100):
-                        new_sl = entry_price * (1 + sl / 100)
-                        place_stop_loss(symbol, "long", new_sl)
-                        break
-
-                    elif side == "short" and current_price <= entry_price * (1 - trigger / 100):
-                        new_sl = entry_price * (1 - sl / 100)
-                        place_stop_loss(symbol, "short", new_sl)
+                        print(f"📊 Checking: {symbol} | Entry: {entry_price} | Current: {current_price} | Side: {direction}")
+                        place_stop_loss(symbol, direction, round(sl_price, 4))
                         break
 
             except FileNotFoundError:
@@ -221,6 +208,6 @@ def monitor_trailing_stop():
             except Exception as e:
                 print(f"❌ SL Monitor Error for {symbol}: {e}")
 
-        time.sleep(5)
+        time.sleep(10)
 
 threading.Thread(target=monitor_trailing_stop, daemon=True).start()
