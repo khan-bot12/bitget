@@ -104,65 +104,6 @@ def place_order(action, symbol, quantity, leverage):
     print(f"✅ New order response: {response.json()}")
     return response.json()
 
-# === Entry Price Helpers ===
-def save_entry_price(symbol, entry_price):
-    with open(f"{symbol}_entry.txt", "w") as f:
-        f.write(str(entry_price))
-
-def get_current_price(symbol):
-    url = f"{BASE_URL}/api/mix/v1/market/ticker?symbol={symbol}"
-    response = requests.get(url)
-    return response.json().get("data", {}).get("last")
-
-# === Trailing SL Monitor for Symbol ===
-def place_stop_loss(symbol, hold_side, stop_price):
-    path = "/api/mix/v1/plan/placeTPSL"
-    url = BASE_URL + path
-    body = {
-        "symbol": symbol,
-        "marginCoin": "USDT",
-        "planType": "pos_profit",
-        "triggerPrice": str(stop_price),
-        "holdSide": hold_side,
-        "triggerType": "mark_price"
-    }
-    headers = get_headers("POST", path, body)
-    response = requests.post(url, headers=headers, data=json.dumps(body))
-    print(f"📉 SL Updated: {symbol} → {stop_price}")
-    return response.json()
-
-def monitor_symbol_trailing_stop(symbol):
-    steps = TRAILING_SL_CONFIG.get(symbol, [])
-    if not steps:
-        print(f"⚠️ No trailing config for {symbol}")
-        return
-
-    while True:
-        try:
-            with open(f"{symbol}_entry.txt", "r") as f:
-                entry_price = float(f.read())
-
-            current_price = float(get_current_price(symbol))
-            direction = get_position(symbol).get("data", [{}])[0].get("holdSide", "")
-
-            for step in reversed(steps):
-                trigger = step["trigger"]
-                sl = step["sl"]
-
-                if direction == "long" and current_price >= entry_price * (1 + trigger / 100):
-                    place_stop_loss(symbol, "long", entry_price * (1 + sl / 100))
-                    break
-                elif direction == "short" and current_price <= entry_price * (1 - trigger / 100):
-                    place_stop_loss(symbol, "short", entry_price * (1 - sl / 100))
-                    break
-
-        except FileNotFoundError:
-            return
-        except Exception as e:
-            print(f"❌ Trailing SL error for {symbol}: {e}")
-
-        time.sleep(5)
-
 # === SMART TRADE ===
 def smart_trade(action, symbol, quantity, leverage):
     print(f"📩 smart_trade → Action: {action.upper()}, Symbol: {symbol}, Qty: {quantity}, Leverage: {leverage}")
@@ -206,8 +147,61 @@ def smart_trade(action, symbol, quantity, leverage):
     result = place_order(action, symbol, quantity, leverage)
     entry_price = float(get_current_price(symbol))
     save_entry_price(symbol, entry_price)
-
-    # Start trailing SL monitor for this trade
-    threading.Thread(target=monitor_symbol_trailing_stop, args=(symbol,), daemon=True).start()
-
     return result
+
+# === Entry Price Helpers ===
+def save_entry_price(symbol, entry_price):
+    with open(f"{symbol}_entry.txt", "w") as f:
+        f.write(str(entry_price))
+
+def get_current_price(symbol):
+    url = f"{BASE_URL}/api/mix/v1/market/ticker?symbol={symbol}"
+    response = requests.get(url)
+    return response.json().get("data", {}).get("last")
+
+# === SL Placement ===
+def place_stop_loss(symbol, hold_side, stop_price):
+    path = "/api/mix/v1/plan/placeTPSL"
+    url = BASE_URL + path
+    body = {
+        "symbol": symbol,
+        "marginCoin": "USDT",
+        "planType": "pos_profit",
+        "triggerPrice": str(stop_price),
+        "holdSide": hold_side,
+        "triggerType": "mark_price"
+    }
+    headers = get_headers("POST", path, body)
+    response = requests.post(url, headers=headers, data=json.dumps(body))
+    print(f"📉 SL Updated: {symbol} → {stop_price}")
+    return response.json()
+
+# === SL Monitor ===
+def monitor_trailing_stop():
+    while True:
+        for symbol, steps in TRAILING_SL_CONFIG.items():
+            try:
+                with open(f"{symbol}_entry.txt", "r") as f:
+                    entry_price = float(f.read())
+                current_price = float(get_current_price(symbol))
+
+                # 🟢 Debug log
+                print(f"📊 Checking: {symbol} | Entry: {entry_price} | Current: {current_price}")
+
+                for step in reversed(steps):
+                    trigger = step["trigger"]
+                    sl = step["sl"]
+
+                    if current_price >= entry_price * (1 + trigger / 100):
+                        new_sl = entry_price * (1 + sl / 100)
+                        place_stop_loss(symbol, "long", new_sl)
+                        break
+
+            except FileNotFoundError:
+                continue
+            except Exception as e:
+                print(f"❌ SL Monitor Error for {symbol}: {e}")
+
+        time.sleep(5)
+
+threading.Thread(target=monitor_trailing_stop, daemon=True).start()
