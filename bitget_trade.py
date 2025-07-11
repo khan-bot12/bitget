@@ -151,15 +151,17 @@ def smart_trade(action, symbol, quantity, leverage):
 
 # === Entry Price Helpers ===
 def save_entry_price(symbol, entry_price):
-    with open(f"{symbol}_entry.txt", "w") as f:
+    path = f"{symbol}_entry.txt"
+    with open(path, "w") as f:
         f.write(str(entry_price))
+    os.chmod(path, 0o644)
 
 def get_current_price(symbol):
     url = f"{BASE_URL}/api/mix/v1/market/ticker?symbol={symbol}"
     response = requests.get(url)
     return response.json().get("data", {}).get("last")
 
-# === SL Placement ===
+# === Trailing SL Monitor ===
 def place_stop_loss(symbol, hold_side, stop_price):
     path = "/api/mix/v1/plan/placeTPSL"
     url = BASE_URL + path
@@ -176,8 +178,8 @@ def place_stop_loss(symbol, hold_side, stop_price):
     print(f"📉 SL Updated: {symbol} → {stop_price}")
     return response.json()
 
-# === SL Monitor ===
 def monitor_trailing_stop():
+    print("🚨 Trailing SL thread started.")
     while True:
         for symbol, steps in TRAILING_SL_CONFIG.items():
             try:
@@ -185,16 +187,33 @@ def monitor_trailing_stop():
                     entry_price = float(f.read())
                 current_price = float(get_current_price(symbol))
 
-                # 🟢 Debug log
-                print(f"📊 Checking: {symbol} | Entry: {entry_price} | Current: {current_price}")
+                pos = get_position(symbol)
+                side = None
+                size = 0
+
+                if pos["code"] == "00000" and pos.get("data"):
+                    for p in pos["data"]:
+                        if p.get("symbol") == symbol:
+                            side = p.get("holdSide")
+                            size = float(p.get("total", 0))
+
+                if not side or size == 0:
+                    continue
+
+                print(f"📊 Checking: {symbol} | Entry: {entry_price} | Current: {current_price} | Side: {side}")
 
                 for step in reversed(steps):
                     trigger = step["trigger"]
                     sl = step["sl"]
 
-                    if current_price >= entry_price * (1 + trigger / 100):
+                    if side == "long" and current_price >= entry_price * (1 + trigger / 100):
                         new_sl = entry_price * (1 + sl / 100)
                         place_stop_loss(symbol, "long", new_sl)
+                        break
+
+                    elif side == "short" and current_price <= entry_price * (1 - trigger / 100):
+                        new_sl = entry_price * (1 - sl / 100)
+                        place_stop_loss(symbol, "short", new_sl)
                         break
 
             except FileNotFoundError:
