@@ -143,23 +143,26 @@ def get_current_price(symbol):
     response = requests.get(url)
     return response.json().get("data", {}).get("last")
 
-# === Trailing SL Monitor (Fixed TP/SL Logic) ===
-def place_stop_loss(symbol, hold_side, stop_price):
+# === SL/TP Placement ===
+def place_sl_tp(symbol, hold_side, sl_price, tp_price):
     path = "/api/mix/v1/plan/placeTPSL"
     url = BASE_URL + path
     body = {
         "symbol": symbol,
         "marginCoin": "USDT",
         "planType": "pos_profit",
-        "triggerPrice": str(stop_price),
+        "triggerPrice": str(sl_price),
+        "triggerType": "mark_price",
         "holdSide": hold_side,
-        "triggerType": "mark_price"
+        "tpTriggerPrice": str(tp_price),
+        "tpTriggerType": "mark_price"
     }
     headers = get_headers("POST", path, body)
     response = requests.post(url, headers=headers, data=json.dumps(body))
-    print(f"📉 SL Updated: {symbol} → {stop_price}")
+    print(f"📉 SL: {sl_price} | 🎯 TP: {tp_price} for {symbol}")
     return response.json()
 
+# === Monitor SL/TP ===
 def monitor_trailing_stop():
     while True:
         for file in os.listdir("."):
@@ -174,15 +177,19 @@ def monitor_trailing_stop():
                     print(f"📊 Checking: {symbol} | Entry: {entry_price} | Current: {current_price} | Side: {side}")
 
                     sl_pct = 0.25 / 100
+                    tp_pct = 0.65 / 100
+
                     if side == "long":
                         sl_price = entry_price * (1 - sl_pct)
+                        tp_price = entry_price * (1 + tp_pct)
                     else:
                         sl_price = entry_price * (1 + sl_pct)
+                        tp_price = entry_price * (1 - tp_pct)
 
-                    place_stop_loss(symbol, side, sl_price)
+                    place_sl_tp(symbol, side, sl_price, tp_price)
 
                 except Exception as e:
-                    print(f"❌ SL Monitor Error for {symbol}: {e}")
+                    print(f"❌ SL/TP Monitor Error for {symbol}: {e}")
 
         time.sleep(1)
 
