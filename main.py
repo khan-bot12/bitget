@@ -1,6 +1,5 @@
 from fastapi import FastAPI, Request
 from bitget_trade import smart_trade
-import uvicorn
 
 app = FastAPI()
 
@@ -20,6 +19,3 @@ async def webhook(request: Request):
 
     result = smart_trade(action, symbol, quantity, leverage)
     return {"status": "ok", "result": result}
-
-if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=80)
